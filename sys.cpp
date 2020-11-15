@@ -7,7 +7,6 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
-#include <avr/power.h>
 #include "sys.h"
 #include "dbg.h"
 #include <stdio.h>
@@ -45,6 +44,7 @@ void SYS::init(void) {
     #endif
   #else
     #if defined(ARDUINO_AVR_LARDU_328E)
+	  #include <avr/power.h>
       clock_prescale_set ( (clock_div_t) __builtin_log2(32000000UL / F_CPU));
     #endif
 	  PORT(UPDI_PORT) = 1<<UPDI_PIN;
@@ -55,8 +55,12 @@ void SYS::init(void) {
   #ifdef LED2_PORT
   DDR(LED2_PORT) |= (1 << LED2_PIN);
   #endif
+  #ifndef DISABLE_HOST_TIMEOUT
   TIMER_HOST_MAX=HOST_TIMEOUT;
+  #endif
+  #ifndef DISABLE_TARGET_TIMEOUT
   TIMER_TARGET_MAX=TARGET_TIMEOUT;
+  #endif
   #if defined(DEBUG_ON)
   DBG::debug(0x18,0xC0,0xFF, 0xEE);
   #endif
@@ -82,16 +86,4 @@ void SYS::clearVerLED(void){
         #endif
 }
 
-/*
-inline void SYS::startTimer()
-inline void SYS::stopTimer()
 
-Timeout mechanisms, 5/2020, Spence Konde
-*/
-
-uint8_t SYS::checkTimeouts() {
-return TIMEOUT_REG;
-}
-void SYS::clearTimeouts() {
-  TIMEOUT_REG=WAIT_FOR_HOST|WAIT_FOR_TARGET;
-}

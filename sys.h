@@ -24,20 +24,23 @@
 // so, switch back to 19200 baud.
 //#define DISABLE_HOST_TIMEOUT
 
-// Disable the timeout waiting for response from target. Probablty not necessary to set. With this disabled, if the target is expected to respond
+// Disable the timeout waiting for response from target. Probably not necessary to set. With this disabled, if the target is expected to respond
 // but does not, jtag2updi will get stuck waiting for it.
-
 //#define DISABLE_TARGET_TIMEOUT
 
+// Deduces the NVM version from reading the SIB string. Otherwise, the NVM version is deduced from the size of flash pages.
+//#define DEDUCE_NVM_VERSION_FROM_SIB
+
 // this will include the SIB, deduced NVM version, and silicon revision in early responses to SET_DEVICE_DESCRIPTPOR (for SIB and NVM version) and ENTER_PROGMODE (for silicon rev)
-#define INCLUDE_EXTRA_INFO_JTAG
+//#define INCLUDE_EXTRA_INFO_JTAG
 
 
 // Auxiliary Macros
-#define CONCAT(A,B) A##B
+#define CONCAT(A,B) A##B				// concatenate
+#define XCONCAT(A,B) CONCAT(A,B)		// expand and concatenate
 //#define CONCAT3(A,B,C) A##B##C
 #if (__AVR_ARCH__ == 103) || (__AVR_ARCH__ == 104)
-//We'll call these ones XAVR for purposes of defines, instead of XTINY. This encompases megaAVR 0-series and DA-series parts
+//We'll call these ones XAVR for purposes of defines, instead of XTINY. This encompasses megaAVR 0-series and DA-series parts
 
 	#define XAVR
 	#	define PIN(x) CONCAT(VPORT,x).IN
@@ -77,7 +80,7 @@
 
 
 #elif defined( __AVR_ATmega_Mighty__ )
-	// For ATmega16, ATmega32, and the later x4 parts (up to the 1284P).
+	// For ATmega16, 32, ... 128 and the later x4 parts (up to the 1284P).
 	// On the ones with two USARTS, you can use USART debugging.
 	//
 	// Here USART debug output is an option too
@@ -91,7 +94,7 @@
 
 
 #elif defined (__AVR_ATmega_Mini__) || defined(ARDUINO_AVR_LARDU_328E)
-	// For ATmega328 and 168 (P, PB) parts
+	// For ATmega8/88/168/328 (P, PB) parts
 	// Same deal as before/ Remember that the buildin LED is on the same pin as SCK on most boards, so you'll want to cadd LEDs on other pinn, defaults to D2
 	// On PB parts can also use second USART. Using the second SPI is not supported.
 
@@ -120,8 +123,8 @@
 #endif
 
 
-/* Defaults and hardware-specific stuff 								*/
-/* Shouldn't need to change anything here 							*/
+/* Defaults and hardware-specific stuff 				*/
+/* Shouldn't need to change anything here				*/
 /* IF you want to override, copy it to the blocks above */
 
 
@@ -161,12 +164,7 @@
 	#	endif
 
 #elif defined( __AVR_ATmega_Mighty__ )
-// For ATmega16, ATmega32, and the later x4 parts (up to the 1284P).
-
-
-	#	ifndef HOST_USART
-	#		define HOST_USART 0
-	#	endif
+// For ATmega16, 32, ... 128 and the later x4 parts (up to the 1284P).
 
 	#	ifndef HOST_USART
 	#		define HOST_USART 0
@@ -190,8 +188,11 @@
 
 
 #elif defined (__AVR_ATmega_Mini__) || defined(ARDUINO_AVR_LARDU_328E)
-	// For ATmega328 and 168 (P, PB) parts
+// For ATmega8/88/168/328 (P, PB) parts
 
+	#	ifndef HOST_USART
+	#		define HOST_USART 0
+	#	endif
 
 	#	ifndef UPDI_PORT
 	#		define UPDI_PORT D
@@ -225,6 +226,10 @@
 
 #elif defined (__AVR_ATmega_Mega__)
 // 2560 and that family, like the ones used on the Arduino Mega
+
+	#	ifndef HOST_USART
+	#		define HOST_USART 0
+	#	endif
 
 	#	ifndef UPDI_PORT
 	#		define UPDI_PORT D
@@ -283,36 +288,47 @@
 	#warning "Part not supported - if you didn't provide all the needed pin definitions, that's why it's not compiling"
 #endif //End of the defaults!
 
-// The ATmega16 has no 0 after the UART register names
+// Define USART registers and bits based on the selected HOST_USART for non-XAVR parts
 #ifndef XAVR
-	#ifndef UDRE0
-		#define UDRE0 UDRE
+	// Define generic USART flags if not defined already
+	#ifndef UDRE
+		#define UDRE XCONCAT(UDRE, HOST_USART)
+		#define U2X XCONCAT(U2X, HOST_USART)
+		#define TXEN XCONCAT(TXEN, HOST_USART)
+		#define RXEN XCONCAT(RXEN, HOST_USART)
+		#define RXC XCONCAT(RXC, HOST_USART)
+		#define TXC XCONCAT(TXC, HOST_USART)
 	#endif
-	#ifndef U2X0
-		#define U2X0 U2X
+	// USART registers
+	#ifdef UCSRA
+		#define HOST_UCSRA UCSRA
+		#define HOST_UCSRB UCSRB
+		#define HOST_UDR UDR
+	#else
+		#define HOST_UCSRA XCONCAT(UCSR, XCONCAT(HOST_USART, A))
+		#define HOST_UCSRB XCONCAT(UCSR, XCONCAT(HOST_USART, B))
+		#define HOST_UDR XCONCAT(UDR, HOST_USART)
 	#endif
-	#ifndef TXEN0
-		#define TXEN0 TXEN
-	#endif
+	// UBRR is more complex and needs a special case
 	#ifndef UBRR0
-		#define UBRR0 UBRRL
-	#endif
-	#ifndef USCR0A
-		#define USCR0A USCRA
-	#endif
-	#ifndef USCR0B
-		#define USCR0B USCRB
-	#endif
-	#ifndef RXC0
-		#define RXC0 RXC
-	#endif
-	#ifndef UDR0
-		#define UDR0 UDR
+		// For older AVRs use only low 8 bits of UBRR because low and high parts are not adjacent
+		#ifdef UBRRL
+			#define HOST_UBRR UBRRL
+		#else
+			#define HOST_UBRR XCONCAT(UBRR, XCONCAT(HOST_USART, L))
+		#endif
+	#else
+		// This is a more modern part; we can use 16 bit UBRR
+		#define HOST_UBRR XCONCAT(UBRR, HOST_USART)		
 	#endif
 #endif
-
-
-
+	
+// Some classic AVRs have a single flags register for timers 0 and 1 (TIFR0 and TIFR1 are merged in a single register TIFR)
+#ifndef XAVR
+	#ifndef TIFR1
+		#define TIFR1 TIFR
+	#endif
+#endif
 
 
 #ifdef XAVR
@@ -340,8 +356,6 @@
 #endif
 
 
-
-
 #ifndef F_CPU
 	# warning "F_CPU not defined, assuming 16MHz"
 	#	define F_CPU 16000000U
@@ -350,19 +364,9 @@
 // TIMEOUTS
 // HOST_TIMEOUT =~250ms
 // TARGET_TIMEOUT=~100ms
-#if (F_CPU==20000000U)
-	#define HOST_TIMEOUT 19000
-	#define TARGET_TIMEOUT 7800
-#elif (F_CPU==24000000U)
-	#define HOST_TIMEOUT 23400
-	#define TARGET_TIMEOUT 9375
-#elif (F_CPU==16000000U)
-	#define HOST_TIMEOUT 15600
-	#define TARGET_TIMEOUT 6250
-#else //8000000U
-	#define HOST_TIMEOUT 7800
-	#define TARGET_TIMEOUT 3125
-#endif
+// Timeout timer is initialized to use /256 divisor
+#define HOST_TIMEOUT (F_CPU / 256.0 * 0.25)
+#define TARGET_TIMEOUT (F_CPU / 256.0 * 0.1)
 
 #ifndef UPDI_BAUD
 	#	define UPDI_BAUD 225000U	// (max 225000 min approx. F_CPU/100)
@@ -422,16 +426,23 @@
 #endif
 
 namespace SYS {
-	uint8_t checkTimeouts(void);
-	void clearTimeouts(void);
+	/*
+	Timeout mechanisms, 5/2020, Spence Konde
+	*/
+	inline uint8_t checkTimeouts() {
+		return TIMEOUT_REG;
+	}
+	inline void clearTimeouts() {
+		TIMEOUT_REG=WAIT_FOR_HOST|WAIT_FOR_TARGET;
+	}
 	inline void startTimer(void) __attribute__((always_inline));
 	inline void startTimer(void) {
-  #ifdef TIMER_RESET_REG //some timers have a reset register.
-  TIMER_RESET_REG=TIMER_RESET_CMD;
-  #else
-  TIMER_COUNT_REG=0;
-  #endif
-  TIMER_CONTROL_REG=TIMER_ON;
+      #ifdef TIMER_RESET_REG //some timers have a reset register.
+      TIMER_RESET_REG=TIMER_RESET_CMD;
+      #else
+      TIMER_COUNT_REG=0;
+      #endif
+      TIMER_CONTROL_REG=TIMER_ON;
 	}
 	inline void stopTimer(void) __attribute__((always_inline));
 	inline void stopTimer(void){ TIMER_CONTROL_REG=TIMER_OFF; }
